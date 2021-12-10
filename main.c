@@ -1,9 +1,9 @@
-//#include <mpi.h>
+// #include <mpi.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "bmp.h"
-#include "dthread.h"
+#include "tpool.h"
 
 //定義平滑運算的次數
 #define NSmooth 1000
@@ -125,11 +125,11 @@ int main(int argc,char *argv[])
 	
 	tpool_join(pool);
  	//寫入檔案
-    if ( saveBMP( outfileName ) )
+    if ( saveBMP( outfileName ) ) {
         printf("Save file successfully!!\n");
-    else
+    } else {
         printf("Save file fails!!\n");
-	
+    }
 	//得到結束時間，並印出執行時間
         //endwtime = MPI_Wtime();
     	//cout << "The execution time = "<< endwtime-startwtime <<endl ;
