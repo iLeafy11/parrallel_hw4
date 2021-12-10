@@ -39,19 +39,18 @@ typedef struct __param {
 
 void *smooth(void *param) 
 {
-	param_t args = *(param_t *) param;
-	int i = args.i;
-	int j = args.j;
-	int Top = i>0 ? i-1 : bmpInfo.biHeight-1;
-	int Down = i<bmpInfo.biHeight-1 ? i+1 : 0;
-	int Left = j>0 ? j-1 : bmpInfo.biWidth-1;
-	int Right = j<bmpInfo.biWidth-1 ? j+1 : 0;
-	
-	RGBTRIPLE *TMP = malloc(sizeof(RGBTRIPLE));
-	TMP->rgbBlue = (double) (BMPData[i][j].rgbBlue+BMPData[Top][j].rgbBlue+BMPData[Top][Left].rgbBlue+BMPData[Top][Right].rgbBlue+BMPData[Down][j].rgbBlue+BMPData[Down][Left].rgbBlue+BMPData[Down][Right].rgbBlue+BMPData[i][Left].rgbBlue+BMPData[i][Right].rgbBlue)/9+0.5;
-	TMP->rgbGreen = (double) (BMPData[i][j].rgbGreen+BMPData[Top][j].rgbGreen+BMPData[Top][Left].rgbGreen+BMPData[Top][Right].rgbGreen+BMPData[Down][j].rgbGreen+BMPData[Down][Left].rgbGreen+BMPData[Down][Right].rgbGreen+BMPData[i][Left].rgbGreen+BMPData[i][Right].rgbGreen)/9+0.5;
-	TMP->rgbRed = (double) (BMPData[i][j].rgbRed+BMPData[Top][j].rgbRed+BMPData[Top][Left].rgbRed+BMPData[Top][Right].rgbRed+BMPData[Down][j].rgbRed+BMPData[Down][Left].rgbRed+BMPData[Down][Right].rgbRed+BMPData[i][Left].rgbRed+BMPData[i][Right].rgbRed)/9+0.5;
-	return (void *)TMP;
+    for(int i = 0; i<bmpInfo.biHeight ; i++) {
+		for(int j = 0; j<bmpInfo.biWidth ; j++){
+			int Top = i>0 ? i-1 : bmpInfo.biHeight-1;
+			int Down = i<bmpInfo.biHeight-1 ? i+1 : 0;
+            int Left = j>0 ? j-1 : bmpInfo.biWidth-1;
+			int Right = j<bmpInfo.biWidth-1 ? j+1 : 0;
+			BMPSaveData[i][j].rgbBlue =  (double) (BMPData[i][j].rgbBlue+BMPData[Top][j].rgbBlue+BMPData[Top][Left].rgbBlue+BMPData[Top][Right].rgbBlue+BMPData[Down][j].rgbBlue+BMPData[Down][Left].rgbBlue+BMPData[Down][Right].rgbBlue+BMPData[i][Left].rgbBlue+BMPData[i][Right].rgbBlue)/9+0.5;
+			BMPSaveData[i][j].rgbGreen =  (double) (BMPData[i][j].rgbGreen+BMPData[Top][j].rgbGreen+BMPData[Top][Left].rgbGreen+BMPData[Top][Right].rgbGreen+BMPData[Down][j].rgbGreen+BMPData[Down][Left].rgbGreen+BMPData[Down][Right].rgbGreen+BMPData[i][Left].rgbGreen+BMPData[i][Right].rgbGreen)/9+0.5;
+            BMPSaveData[i][j].rgbRed =  (double) (BMPData[i][j].rgbRed+BMPData[Top][j].rgbRed+BMPData[Top][Left].rgbRed+BMPData[Top][Right].rgbRed+BMPData[Down][j].rgbRed+BMPData[Down][Left].rgbRed+BMPData[Down][Right].rgbRed+BMPData[i][Left].rgbRed+BMPData[i][Right].rgbRed)/9+0.5;
+		}
+    }
+	return NULL;
 }
 
 int main(int argc,char *argv[])
@@ -81,7 +80,7 @@ int main(int argc,char *argv[])
 	//動態分配記憶體給暫存空間
     BMPData = alloc_memory( bmpInfo.biHeight, bmpInfo.biWidth);
 			
-	param_t *args = malloc(sizeof(param_t));
+	// param_t *args = malloc(sizeof(param_t));
 	/*
 	param_t **args = malloc(bmpInfo.biHeight * sizeof(param_t *));
 	for(int i = 0; i<bmpInfo.biHeight ; i++){
@@ -96,33 +95,21 @@ int main(int argc,char *argv[])
 	}
 	*/
 	
-	tpool_t pool = tpool_create(4);
-	tpool_future_t futures[bmpInfo.biHeight][bmpInfo.biWidth]; // pointer type
+	tpool_t pool = tpool_create(16);
+	tpool_future_t futures[1000]; // pointer type
 	
 	//進行多次的平滑運算
-	for(int count = 0; count < NSmooth ; count ++) {
+	for(int count = 0; count < /*NSmooth*/ 32 ; count ++) {
 		//把像素資料與暫存指標做交換
 		swap(BMPSaveData, BMPData);
 		//進行平滑運算
-		for(int i = 0; i<bmpInfo.biHeight ; i++) {
-			for(int j = 0; j<bmpInfo.biWidth ; j++) {
-				args->i = i;
-				args->j = j;
-				futures[i][j] = tpool_apply(pool, smooth, (void *) args);
-				// futures[i][j] = tpool_apply(pool, smooth, (void *) &args[i][j]);
-			}
-		}
-		
-		for(int i = 0; i<bmpInfo.biHeight ; i++) {
-			for(int j = 0; j<bmpInfo.biWidth ; j++) {
-				RGBTRIPLE *result = tpool_future_get(futures[i][j], 0 /* blocking wait */);
-				BMPSaveData[i][j] = *result;
-				tpool_future_destroy(futures[i][j]);
-				free(result);
-			}
-		}
+		futures[count] = tpool_apply(pool, smooth, NULL);
 	}
-	
+
+	for (int i = 0; i < /*NSmooth*/ 32; i++) {
+		tpool_future_get(futures[i], 0 /* blocking wait */);
+        tpool_future_destroy(futures[i]);
+    }
 	tpool_join(pool);
  	//寫入檔案
     if ( saveBMP( outfileName ) ) {

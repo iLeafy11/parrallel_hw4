@@ -64,11 +64,11 @@ int main(int argc,char *argv[])
         BMPData = alloc_memory( bmpInfo.biHeight, bmpInfo.biWidth);
 
         //進行多次的平滑運算
-	for(int count = 0; count < NSmooth ; count ++){
+	for(int count = 0; count < /*NSmooth*/ 32 ; count ++){
 		//把像素資料與暫存指標做交換
 		swap(BMPSaveData,BMPData);
 		//進行平滑運算
-		for(int i = 0; i<bmpInfo.biHeight ; i++)
+		for(int i = 0; i<bmpInfo.biHeight ; i++) {
 			for(int j =0; j<bmpInfo.biWidth ; j++){
 				/*********************************************************/
 				/*設定上下左右像素的位置                                 */
@@ -84,6 +84,8 @@ int main(int argc,char *argv[])
 				BMPSaveData[i][j].rgbGreen =  (double) (BMPData[i][j].rgbGreen+BMPData[Top][j].rgbGreen+BMPData[Top][Left].rgbGreen+BMPData[Top][Right].rgbGreen+BMPData[Down][j].rgbGreen+BMPData[Down][Left].rgbGreen+BMPData[Down][Right].rgbGreen+BMPData[i][Left].rgbGreen+BMPData[i][Right].rgbGreen)/9+0.5;
 				BMPSaveData[i][j].rgbRed =  (double) (BMPData[i][j].rgbRed+BMPData[Top][j].rgbRed+BMPData[Top][Left].rgbRed+BMPData[Top][Right].rgbRed+BMPData[Down][j].rgbRed+BMPData[Down][Left].rgbRed+BMPData[Down][Right].rgbRed+BMPData[i][Left].rgbRed+BMPData[i][Right].rgbRed)/9+0.5;
 			}
+        }
+        printf("finished\n");
 	}
  
  	//寫入檔案
