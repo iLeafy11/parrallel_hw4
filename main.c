@@ -1,62 +1,273 @@
-#include <math.h>
+//#include <mpi.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include "bmp.h"
 
-#include "thread.h"
-#include "dthread.h"
+using namespace std;
 
-#define PRECISION 100 /* upper bound in BPP sum */
-/* Use Baileyâ€“Borweinâ€“Plouffe formula to approximate PI */
-static void *bbp(void *arg) // mod
+//©w¸q¥­·Æ¹Bºâªº¦¸¼Æ
+#define NSmooth 1000
+
+/*********************************************************/
+/*ÅÜ¼Æ«Å§i¡G                                             */
+/*  bmpHeader    ¡G BMPÀÉªº¼ÐÀY                          */
+/*  bmpInfo      ¡G BMPÀÉªº¸ê°T                          */
+/*  **BMPSaveData¡G Àx¦s­n³Q¼g¤Jªº¹³¯À¸ê®Æ               */
+/*  **BMPData    ¡G ¼È®ÉÀx¦s­n³Q¼g¤Jªº¹³¯À¸ê®Æ           */
+/*********************************************************/
+BMPHEADER bmpHeader;                        
+BMPINFO bmpInfo;
+RGBTRIPLE **BMPSaveData = NULL;                                               
+RGBTRIPLE **BMPData = NULL;                                                   
+
+/*********************************************************/
+/*¨ç¼Æ«Å§i¡G                                             */
+/*  readBMP    ¡G Åª¨ú¹ÏÀÉ¡A¨Ã§â¹³¯À¸ê®ÆÀx¦s¦bBMPSaveData*/
+/*  saveBMP    ¡G ¼g¤J¹ÏÀÉ¡A¨Ã§â¹³¯À¸ê®ÆBMPSaveData¼g¤J  */
+/*  swap       ¡G ¥æ´«¤G­Ó«ü¼Ð                           */
+/*  **alloc_memory¡G °ÊºA¤À°t¤@­ÓY * X¯x°}               */
+/*********************************************************/
+int readBMP( char *fileName);        //read file
+int saveBMP( char *fileName);        //save file
+void swap(RGBTRIPLE *a, RGBTRIPLE *b);
+RGBTRIPLE **alloc_memory( int Y, int X );        //allocate memory
+
+typedef struct __param {
+    int i, j;
+} param_t;
+
+
+void *smooth(void *param) 
 {
-    int k = *(int *) arg;
-    double sum = (4.0 / (8 * k + 1)) - (2.0 / (8 * k + 4)) -
-                 (1.0 / (8 * k + 5)) - (1.0 / (8 * k + 6));
-    double *product = malloc(sizeof(double));
-    if (product)
-        *product = 1 / pow(16, k) * sum;
-    return (void *) product;
+	param_t args = *(param_t *) param;
+	int i = args.i;
+	int j = args.j;
+	int Top = i>0 ? i-1 : bmpInfo.biHeight-1;
+	int Down = i<bmpInfo.biHeight-1 ? i+1 : 0;
+	int Left = j>0 ? j-1 : bmpInfo.biWidth-1;
+	int Right = j<bmpInfo.biWidth-1 ? j+1 : 0;
+	
+	RGBTRIPLE *TMP = malloc(sizeof(RGBTRIPLE));
+	TMP->rgbBlue = (double) (BMPData[i][j].rgbBlue+BMPData[Top][j].rgbBlue+BMPData[Top][Left].rgbBlue+BMPData[Top][Right].rgbBlue+BMPData[Down][j].rgbBlue+BMPData[Down][Left].rgbBlue+BMPData[Down][Right].rgbBlue+BMPData[i][Left].rgbBlue+BMPData[i][Right].rgbBlue)/9+0.5;
+	TMP->rgbGreen = (double) (BMPData[i][j].rgbGreen+BMPData[Top][j].rgbGreen+BMPData[Top][Left].rgbGreen+BMPData[Top][Right].rgbGreen+BMPData[Down][j].rgbGreen+BMPData[Down][Left].rgbGreen+BMPData[Down][Right].rgbGreen+BMPData[i][Left].rgbGreen+BMPData[i][Right].rgbGreen)/9+0.5;
+	TMP->rgbRed = (double) (BMPData[i][j].rgbRed+BMPData[Top][j].rgbRed+BMPData[Top][Left].rgbRed+BMPData[Top][Right].rgbRed+BMPData[Down][j].rgbRed+BMPData[Down][Left].rgbRed+BMPData[Down][Right].rgbRed+BMPData[i][Left].rgbRed+BMPData[i][Right].rgbRed)/9+0.5;
+	return (void *)TMP;
 }
 
-/*
-static void *test(void *arg)
+int main(int argc,char *argv[])
 {
-    sleep(10);
-    int i = *(int *) arg;
-    double *product = malloc(sizeof(double));
-    if (product) {
-        *product = (double) i;
-    }
-    return (void *) product;
-}
-*/
+/*********************************************************/
+/*ÅÜ¼Æ«Å§i¡G                                             */
+/*  *infileName  ¡G Åª¨úÀÉ¦W                             */
+/*  *outfileName ¡G ¼g¤JÀÉ¦W                             */
+/*  startwtime   ¡G °O¿ý¶}©l®É¶¡                         */
+/*  endwtime     ¡G °O¿ýµ²§ô®É¶¡                         */
+/*********************************************************/
+	char *infileName = "input.bmp";
+    char *outfileName = "output.bmp";
+	double startwtime = 0.0, endwtime=0;
 
-#include "leibniz.h"
+	//MPI_Init(&argc,&argv);
+	
+	//°O¿ý¶}©l®É¶¡
+	//startwtime = MPI_Wtime();
 
-int main()
-{
-    int bbp_args[PRECISION + 1]; // mod
-    double bbp_sum = 0; // mod
-    tpool_t pool = tpool_create(4);
-    tpool_future_t futures[PRECISION + 1];
+	//Åª¨úÀÉ®×
+        if ( readBMP( infileName) )
+                cout << "Read file successfully!!" << endl;
+        else 
+                cout << "Read file fails!!" << endl;
 
-    for (int i = 0; i <= PRECISION; i++) {
-        bbp_args[i] = i; // mod
-        futures[i] = tpool_apply(pool, bbp, (void *) &bbp_args[i]); // bbp
-        // futures[i] = tpool_apply(pool, test, (void *) &bbp_args[i]); // test
-    }
+	//°ÊºA¤À°t°O¾ÐÅéµ¹¼È¦sªÅ¶¡
+        BMPData = alloc_memory( bmpInfo.biHeight, bmpInfo.biWidth);
+		
+		
+		
+	param_t *args = malloc(sizeof(param_t));
+	/*
+	param_t **args = malloc(bmpInfo.biHeight * sizeof(param_t *));
+	for(int i = 0; i<bmpInfo.biHeight ; i++){
+		args[i] = malloc(bmpInfo.biWidth * sizeof(param_t));
+	}
 
-    for (int i = 0; i <= PRECISION; i++) {
-        double *result = tpool_future_get(futures[i], 0 /* blocking wait */);
-        bbp_sum += *result; // mod
-        // printf ("%.15f\n", *result); // test
-        tpool_future_destroy(futures[i]);
-        free(result);
-    }
+	for(int i = 0; i<bmpInfo.biHeight ; i++)
+		for(int j = 0; j<bmpInfo.biWidth ; j++){
+			args[i][j]->i = i;
+			args[i][j]->j = j;
+		}
+	}
+	*/
+	
+	tpool_t pool = tpool_create(4);
+	tpool_future_t futures[bmpInfo.biHeight][bmpInfo.biWidth]; // pointer type
+	
+	//¶i¦æ¦h¦¸ªº¥­·Æ¹Bºâ
+	for(int count = 0; count < NSmooth ; count ++){
+		//§â¹³¯À¸ê®Æ»P¼È¦s«ü¼Ð°µ¥æ´«
+		swap(BMPSaveData,BMPData);
+		//¶i¦æ¥­·Æ¹Bºâ
+		for(int i = 0; i<bmpInfo.biHeight ; i++){
+			for(int j = 0; j<bmpInfo.biWidth ; j++){
+				args->i = i;
+				args->j = j;
+				futures[i][j] = tpool_apply(pool, smooth, (void *) args);
+				// futures[i][j] = tpool_apply(pool, smooth, (void *) &args[i][j]);
+			}
+		}
+		
+		for(int i = 0; i<bmpInfo.biHeight ; i++)
+			for(int j = 0; j<bmpInfo.biWidth ; j++){
+				RGBTRIPLE *result = tpool_future_get(futures[i][j], 0 /* blocking wait */);
+				BMPSaveData[i][j] = *result;
+				tpool_future_destroy(futures[i][j]);
+				free(result);
+			}
+		}
+	}
+	
+	tpool_join(pool);
+ 	//¼g¤JÀÉ®×
+        if ( saveBMP( outfileName ) )
+                cout << "Save file successfully!!" << endl;
+        else
+                cout << "Save file fails!!" << endl;
+	
+	//±o¨ìµ²§ô®É¶¡¡A¨Ã¦L¥X°õ¦æ®É¶¡
+        //endwtime = MPI_Wtime();
+    	//cout << "The execution time = "<< endwtime-startwtime <<endl ;
 
-    tpool_join(pool);
-    printf("PI calculated with %d terms: %.15f\n", PRECISION + 1, bbp_sum); // mod
+	free(BMPData[0]);
+ 	free(BMPSaveData[0]);
+ 	free(BMPData);
+ 	free(BMPSaveData);
+ 	//MPI_Finalize();
 
     return 0;
 }
+
+/*********************************************************/
+/* Åª¨ú¹ÏÀÉ                                              */
+/*********************************************************/
+int readBMP(char *fileName)
+{
+	//«Ø¥ß¿é¤JÀÉ®×ª«¥ó	
+        ifstream bmpFile( fileName, ios::in | ios::binary );
+		// FILE *fp = fopen(filename, 'rb');
+ 
+        //ÀÉ®×µLªk¶}±Ò
+        if ( !bmpFile ){
+                cout << "It can't open file!!" << endl;
+				// printf("It can't open file!!\n");
+                return 0;
+        }
+ 
+        //Åª¨úBMP¹ÏÀÉªº¼ÐÀY¸ê®Æ
+    	bmpFile.read( ( char* ) &bmpHeader, sizeof( BMPHEADER ) );
+		// read( ( char* ) &bmpHeader, sizeof( BMPHEADER ) );
+ 
+        //§P¨M¬O§_¬°BMP¹ÏÀÉ
+        if( bmpHeader.bfType != 0x4d42 ){
+                cout << "This file is not .BMP!!" << endl ;
+                return 0;
+        }
+ 
+        //Åª¨úBMPªº¸ê°T
+        bmpFile.read( ( char* ) &bmpInfo, sizeof( BMPINFO ) );
+		// read( ( char* ) &bmpInfo, sizeof( BMPINFO ) );
+        
+        //§PÂ_¦ì¤¸²`«×¬O§_¬°24 bits
+        if ( bmpInfo.biBitCount != 24 ){
+                cout << "The file is not 24 bits!!" << endl;
+				// printf("The file is not 24 bits!!\n");
+                return 0;
+        }
+
+        //­×¥¿¹Ï¤ùªº¼e«×¬°4ªº­¿¼Æ
+        while( bmpInfo.biWidth % 4 != 0 )
+        	bmpInfo.biWidth++;
+
+        //°ÊºA¤À°t°O¾ÐÅé
+        BMPSaveData = alloc_memory( bmpInfo.biHeight, bmpInfo.biWidth);
+        
+        //Åª¨ú¹³¯À¸ê®Æ
+    	//for(int i = 0; i < bmpInfo.biHeight; i++)
+        //	bmpFile.read( (char* )BMPSaveData[i], bmpInfo.biWidth*sizeof(RGBTRIPLE));
+	    bmpFile.read( (char* )BMPSaveData[0], bmpInfo.biWidth*sizeof(RGBTRIPLE)*bmpInfo.biHeight);
+		// read( (char* )BMPSaveData[0], bmpInfo.biWidth*sizeof(RGBTRIPLE)*bmpInfo.biHeight);
+		
+        //Ãö³¬ÀÉ®×
+        bmpFile.close();
+ 
+        return 1;
+ 
+}
+/*********************************************************/
+/* Àx¦s¹ÏÀÉ                                              */
+/*********************************************************/
+int saveBMP( char *fileName)
+{
+ 	//§P¨M¬O§_¬°BMP¹ÏÀÉ
+        if( bmpHeader.bfType != 0x4d42 ){
+                cout << "This file is not .BMP!!" << endl ;
+                return 0;
+        }
+        
+ 	//«Ø¥ß¿é¥XÀÉ®×ª«¥ó
+        ofstream newFile( fileName,  ios:: out | ios::binary );
+ 
+        //ÀÉ®×µLªk«Ø¥ß
+        if ( !newFile ){
+                cout << "The File can't create!!" << endl;
+                return 0;
+        }
+ 	
+        //¼g¤JBMP¹ÏÀÉªº¼ÐÀY¸ê®Æ
+        newFile.write( ( char* )&bmpHeader, sizeof( BMPHEADER ) );
+
+	//¼g¤JBMPªº¸ê°T
+        newFile.write( ( char* )&bmpInfo, sizeof( BMPINFO ) );
+
+        //¼g¤J¹³¯À¸ê®Æ
+        //for( int i = 0; i < bmpInfo.biHeight; i++ )
+        //        newFile.write( ( char* )BMPSaveData[i], bmpInfo.biWidth*sizeof(RGBTRIPLE) );
+        newFile.write( ( char* )BMPSaveData[0], bmpInfo.biWidth*sizeof(RGBTRIPLE)*bmpInfo.biHeight );
+
+        //¼g¤JÀÉ®×
+        newFile.close();
+ 
+        return 1;
+ 
+}
+
+
+/*********************************************************/
+/* ¤À°t°O¾ÐÅé¡G¦^¶Ç¬°Y*Xªº¯x°}                           */
+/*********************************************************/
+RGBTRIPLE **alloc_memory(int Y, int X )
+{        
+	//«Ø¥ßªø«×¬°Yªº«ü¼Ð°}¦C
+        RGBTRIPLE **temp = new RGBTRIPLE *[ Y ];
+	    RGBTRIPLE *temp2 = new RGBTRIPLE [ Y * X ];
+        memset( temp, 0, sizeof( RGBTRIPLE ) * Y);
+        memset( temp2, 0, sizeof( RGBTRIPLE ) * Y * X );
+
+	//¹ï¨C­Ó«ü¼Ð°}¦C¸Ìªº«ü¼Ð«Å§i¤@­Óªø«×¬°Xªº°}¦C 
+        for( int i = 0; i < Y; i++){
+                temp[ i ] = &temp2[i*X];
+        }
+ 
+        return temp;
+ 
+}
+/*********************************************************/
+/* ¥æ´«¤G­Ó«ü¼Ð                                          */
+/*********************************************************/
+void swap(RGBTRIPLE *a, RGBTRIPLE *b)
+{
+	RGBTRIPLE *temp;
+	temp = a;
+	a = b;
+	b = temp;
+}
+
